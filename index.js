@@ -33,25 +33,92 @@ const result = await cursor.toArray();
 res.send(result);
 })
 
-app.get('/gears', async (req, res) =>{
-  const cursor = gears.find({});
-  const result = await cursor.toArray();
+
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const toArray = (value) => (Array.isArray(value) ? value : [value]);
+
+
+const asNumber = (field) => ({
+  $convert: { input: field, to: "double", onError: 0, onNull: 0 },
+});
+
+app.get("/gears/categories", async (req, res) => {
+  const categories = await gears.distinct("category");
+  res.send(categories);
+});
+
+app.get("/gears", async (req, res) => {
+  const { category, location, rentalType, minPrice, maxPrice, available ,search } =
+    req.query;
+
+  const filters = [];
+if (search) {
+  const pattern = { $regex: escapeRegex(search), $options: "i" };
+  filters.push({
+    $or: [
+      { equipmentName: pattern },
+      { category: pattern },
+      { brand: pattern },
+    ],
+  });
+}
+  if (category) {
+    filters.push({ category: { $in: toArray(category) } });
+  }
+
+  
+  if (location) {
+    filters.push({
+      location: { $regex: escapeRegex(location), $options: "i" },
+    });
+  }
+
+  // Rental type (Daily / Weekly / Monthly)
+  if (rentalType) {
+    const types = toArray(rentalType).map(
+      (t) => new RegExp(`^${escapeRegex(t)}$`, "i")
+    );
+    filters.push({ rentalType: { $in: types } });
+  }
+
+  // Price range
+  if (minPrice) {
+    filters.push({
+      $expr: { $gte: [asNumber("$rentalPrice"), Number(minPrice)] },
+    });
+  }
+  if (maxPrice) {
+    filters.push({
+      $expr: { $lte: [asNumber("$rentalPrice"), Number(maxPrice)] },
+    });
+  }
+
+  // Available only (stock > 0)
+  if (available === "true") {
+    filters.push({ $expr: { $gt: [asNumber("$quantity"), 0] } });
+  }
+
+  const query = filters.length ? { $and: filters } : {};
+  console.log("filter query:", JSON.stringify(query));
+
+  const result = await gears.find(query).toArray();
   res.send(result);
-})
+});
 
 
 app.post('/gears',async (req,res)=>{
   const gear = req.body;
   const result = await gears.insertOne(gear);
   res.send(result);
-    console.log("Deleting id:", id);
+   
 })
 
 app.delete('/gears/:id', async (req, res) => {
   const id = req.params.id;
   const query = { _id: new ObjectId(id) };
   const result = await gears.deleteOne(query);
-  console.log(result);
+
   res.send(result);
 });
 
