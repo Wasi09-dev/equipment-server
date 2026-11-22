@@ -55,6 +55,58 @@ const result = await cursor.toArray();
 res.send(result);
 })
 
+const getCaller = async (req) => {
+  const email = req.headers["x-user-email"];
+  if (!email) return null;
+  return users.findOne({ email });
+};
+
+const userFilter = (id) =>
+  ObjectId.isValid(id)
+    ? { $or: [{ _id: new ObjectId(id) }, { _id: id }] }
+    : { _id: id };
+
+app.patch("/users/:id/role", async (req, res) => {
+  const caller = await getCaller(req);
+  if (!caller || caller.role !== "admin") {
+    return res.status(403).send({ message: "Admins only" });
+  }
+
+  const { role } = req.body;
+  if (!["customer", "owner", "admin"].includes(role)) {
+    return res.status(400).send({ message: "Invalid role" });
+  }
+
+  const target = await users.findOne(userFilter(req.params.id));
+  if (!target) return res.status(404).send({ message: "User not found" });
+  if (target.email === caller.email) {
+    return res.status(400).send({ message: "You can't change your own role" });
+  }
+
+  const result = await users.updateOne({ _id: target._id }, { $set: { role } });
+  res.send(result);
+});
+
+app.patch("/users/:id/ban", async (req, res) => {
+  const caller = await getCaller(req);
+  if (!caller || caller.role !== "admin") {
+    return res.status(403).send({ message: "Admins only" });
+  }
+
+  const { banned } = req.body;
+  if (typeof banned !== "boolean") {
+    return res.status(400).send({ message: "banned must be true or false" });
+  }
+
+  const target = await users.findOne(userFilter(req.params.id));
+  if (!target) return res.status(404).send({ message: "User not found" });
+  if (target.email === caller.email) {
+    return res.status(400).send({ message: "You can't ban yourself" });
+  }
+
+  const result = await users.updateOne({ _id: target._id }, { $set: { banned } });
+  res.send(result);
+});
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
